@@ -1,4 +1,5 @@
 #include "batchsplitter.h"
+#include "processor.h"
 #include <array>
 #include <chrono>
 #include <filesystem>
@@ -36,11 +37,16 @@ int main(int argc, char *argv[]) {
 
     auto start = std::chrono::high_resolution_clock::now();
 
-    auto splitter = BatchSplitter{};
-    auto thread = std::thread{[]() {}};
-    thread.join();
+    // auto splitter = BatchSplitter{};
+    // auto thread = std::thread{[]() {}};
+    // thread.join();
 
     auto file = std::ifstream{arg.path};
+
+    if (!file) {
+        std::cerr << "could not open file\n";
+        std::terminate();
+    }
 
     auto batches = 0;
 
@@ -53,15 +59,18 @@ int main(int argc, char *argv[]) {
     //     ++batches;
     // }
 
-    auto i = 0;
-    constexpr auto batchSize = 1000'000;
-    auto batch = std::array<std::array<char, batchSize>, 2>{};
-    for (; file.read(batch.at(i).data(), batchSize);) {
-        ++batches;
-        splitter.push(batch.at(i));
-        i = !i;
-        // auto lock = std::unique_lock{m};
-    }
+    // auto i = 0;
+    // constexpr auto batchSize = 1000'000;
+    // constexpr int numBatches = 4;
+    // auto batch = std::array<std::array<char, batchSize>, numBatches>{};
+    // for (; file.read(batch.at(i).data(), batchSize);) {
+    //     // std::cout << "read\n";
+    //     ++batches;
+    //     splitter.push(batch.at(i));
+    //     ++i;
+    //     i = i % numBatches;
+    //     // auto lock = std::unique_lock{m};
+    // }
 
     // constexpr auto batchSize = 1000'000;
     // auto batch = std::make_unique<std::array<char, batchSize>>();
@@ -80,6 +89,41 @@ int main(int argc, char *argv[]) {
     // batch.resize(batchSize);
     // for (; file.read(batch.data(), batchSize);) {
     // }
+
+    auto processor = Processor{};
+    // auto allocator = Allocator{};
+
+    // for (auto s = Split{};
+    //      s = allocator.get(), file.read(s.data.data(), 1000'000);) {
+    //     processor.process(std::move(s));
+    //     ++batches;
+    // }
+
+    // constexpr auto batchSize = 1000;
+
+    std::string rest;
+
+    for (; file;) {
+        auto s = Split{};
+
+        if (rest.empty()) {
+            s.data.resize(batchSize);
+            file.read(s.data.data(), batchSize);
+        }
+        else {
+            s.data.resize(batchSize + rest.size() + 1);
+            for (size_t i = 0; i < rest.size(); ++i) {
+                s.data.at(i) = rest.at(i);
+            }
+            s.data.at(rest.size()) = '\n';
+            file.read(s.data.data() + rest.size() + 1, batchSize);
+        }
+
+        file.read(s.data.data(), batchSize);
+        auto rest = s.snipRest();
+        processor.process(std::move(s));
+        ++batches;
+    }
 
     auto stop = std::chrono::high_resolution_clock::now();
 
