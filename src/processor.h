@@ -6,8 +6,14 @@
 struct Processor {
     std::list<Split> queue;
 
+    size_t tmpNum = 0; // Remove this
+
     void processLine(std::string_view line) {
-        // std::cout << line << "\n";
+
+        ++tmpNum;
+        if (tmpNum < 10) {
+            std::cout << line << "\n";
+        }
 
         auto f = line.find(';');
 

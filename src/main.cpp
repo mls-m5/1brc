@@ -31,9 +31,9 @@ struct Settings {
 };
 
 int main(int argc, char *argv[]) {
-    auto arg = Settings{argc, argv};
+    auto settings = Settings{argc, argv};
 
-    std::cout << arg.path << std::endl;
+    std::cout << settings.path << std::endl;
 
     auto start = std::chrono::high_resolution_clock::now();
 
@@ -41,7 +41,7 @@ int main(int argc, char *argv[]) {
     // auto thread = std::thread{[]() {}};
     // thread.join();
 
-    auto file = std::ifstream{arg.path};
+    auto file = std::ifstream{settings.path};
 
     if (!file) {
         std::cerr << "could not open file\n";
@@ -101,28 +101,114 @@ int main(int argc, char *argv[]) {
 
     // constexpr auto batchSize = 1000;
 
-    std::string rest;
+    // {
+    //     std::string rest;
 
-    for (; file;) {
-        auto s = Split{};
+    //     for (; file;) {
+    //         auto s = Split{};
 
-        if (rest.empty()) {
-            s.data.resize(batchSize);
-            file.read(s.data.data(), batchSize);
-        }
-        else {
-            s.data.resize(batchSize + rest.size() + 1);
-            for (size_t i = 0; i < rest.size(); ++i) {
-                s.data.at(i) = rest.at(i);
+    //         if (rest.empty()) {
+    //             s.data.resize(batchSize);
+    //             file.read(s.data.data(), batchSize);
+    //         }
+    //         else {
+    //             s.data.resize(batchSize + rest.size() + 1);
+    //             for (size_t i = 0; i < rest.size(); ++i) {
+    //                 s.data.at(i) = rest.at(i);
+    //             }
+    //             s.data.at(rest.size()) = '\n';
+    //             file.read(s.data.data() + rest.size() + 1, batchSize);
+    //         }
+
+    //         file.read(s.data.data(), batchSize);
+    //         auto rest = s.snipRest();
+    //         processor.process(std::move(s));
+    //         ++batches;
+    //     }
+    // }
+
+    size_t fileLength = 0;
+
+    auto stops = std::vector<size_t>{};
+
+    size_t lastPos = 0;
+
+    auto ranges = std::vector<std::pair<size_t, size_t>>{};
+    auto pushRange = [&](size_t pos) {
+        ranges.push_back({lastPos, pos});
+        lastPos = pos;
+    };
+
+    {
+        {
+
+            stops.push_back(0);
+            // ate means to go for the end of the file
+            std::ifstream file(settings.path, std::ios::binary | std::ios::ate);
+            fileLength = file.tellg();
+
+            std::cout << "file length " << fileLength << "\n";
+
+            stops.resize(fileLength / batchSize);
+
+            for (size_t i = 0; i < stops.size(); ++i) {
+                stops.at(i) = i * fileLength / stops.size();
+                // stops.at(i * 2 + 1) = i * fileLength / stops.size();
+                pushRange(i * fileLength / stops.size());
             }
-            s.data.at(rest.size()) = '\n';
-            file.read(s.data.data() + rest.size() + 1, batchSize);
-        }
 
-        file.read(s.data.data(), batchSize);
-        auto rest = s.snipRest();
-        processor.process(std::move(s));
-        ++batches;
+            std::cout << "number of stops << " << stops.size() << "\n";
+
+            auto data = std::array<char, 100>{};
+            for (auto &s : stops) {
+                file.seekg(s);
+                file.read(data.data(), data.size());
+                for (size_t i = 0; i < data.size(); ++i) {
+                    if (data.at(i) == '\n') {
+                        s += (i + 1);
+                    }
+                }
+            }
+
+            // stops.push_back(fileLength);
+            pushRange(fileLength);
+        }
+    }
+
+    auto threadRanges = std::vector<std::vector<std::pair<size_t, size_t>>>{};
+    threadRanges.resize(std::thread::hardware_concurrency());
+
+    for (size_t i = 0, t = 0; i < ranges.size();
+         ++i, ++t, t = t % std::thread::hardware_concurrency()) {
+        threadRanges.at(t).push_back(ranges.at(i));
+    }
+
+    {
+        auto threads = std::list<std::jthread>{};
+
+        for (auto &ranges : threadRanges) {
+            threads.push_back(std::jthread{[ranges = std::move(ranges),
+                                            &settings]() {
+                auto processor = Processor{};
+                std::cout << "thread " << std::this_thread::get_id() << "\n";
+                // for (size_t i = 0; i < 10; ++i) {
+                //     std::cout << range.at(i).first << ", " <<
+                //     range.at(i).second
+                //               << "\n";
+                // }
+
+                auto file = std::ifstream{settings.path, std::ios::binary};
+
+                for (auto range : ranges) {
+                    file.seekg(range.first);
+                    auto s = Split{};
+                    s.data.resize(range.second - range.first);
+
+                    file.read(s.data.data(), s.data.size());
+                    processor.process(std::move(s));
+                }
+            }});
+        }
     }
 
     auto stop = std::chrono::high_resolution_clock::now();
