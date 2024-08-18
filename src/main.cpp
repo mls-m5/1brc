@@ -191,38 +191,57 @@ int main(int argc, char *argv[]) {
 
     auto threadRanges = std::vector<std::vector<std::pair<size_t, size_t>>>{};
 
-    auto numThreads = std::thread::hardware_concurrency();
+    auto numThreads = std::thread::hardware_concurrency() * 1 + 1 * 0;
     threadRanges.resize(numThreads);
 
     for (size_t i = 0, t = 0; i < ranges.size(); ++i, ++t, t = t % numThreads) {
         threadRanges.at(t).push_back(ranges.at(i));
     }
 
+    std::vector<decltype(Processor::stations)> stations;
+
     {
         auto threads = std::list<std::jthread>{};
 
         for (auto &ranges : threadRanges) {
-            threads.push_back(std::jthread{[ranges = std::move(ranges),
-                                            &settings]() {
-                auto processor = Processor{};
-                std::cout << "thread " << std::this_thread::get_id() << "\n";
-                // for (size_t i = 0; i < 10; ++i) {
-                //     std::cout << range.at(i).first << ", " <<
-                //     range.at(i).second
-                //               << "\n";
-                // }
+            threads.push_back(std::jthread{
+                [ranges = std::move(ranges), &settings, &stations]() {
+                    auto processor = Processor{};
+                    std::cout << "thread " << std::this_thread::get_id()
+                              << "\n";
+                    // for (size_t i = 0; i < 10; ++i) {
+                    //     std::cout << range.at(i).first << ", " <<
+                    //     range.at(i).second
+                    //               << "\n";
+                    // }
 
-                auto file = std::ifstream{settings.path, std::ios::binary};
+                    auto file = std::ifstream{settings.path, std::ios::binary};
 
-                for (auto range : ranges) {
-                    file.seekg(range.first);
-                    auto s = Split{};
-                    s.data.resize(range.second - range.first);
+                    for (auto range : ranges) {
+                        file.seekg(range.first);
+                        auto s = Split{};
+                        s.data.resize(range.second - range.first);
 
-                    file.read(s.data.data(), s.data.size());
-                    processor.process(std::move(s));
-                }
-            }});
+                        file.read(s.data.data(), s.data.size());
+                        processor.process(std::move(s));
+                    }
+
+                    std::cout << "num stations: " << processor.stations.size()
+                              << std::endl;
+
+                    stations.push_back(std::move(processor.stations));
+                }});
+        }
+    }
+
+    decltype(Processor::stations) result;
+
+    for (auto &s : stations.front()) {
+        auto name = s.first;
+        std::cout << name << std::endl;
+        for (auto it : stations) {
+            auto &station = it.at(name);
+            result[name].merge(station);
         }
     }
 
