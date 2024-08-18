@@ -1,14 +1,135 @@
-#include "batchsplitter.h"
-#include "processor.h"
 #include <array>
 #include <chrono>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
-#include <mutex>
+#include <list>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <vector>
+
+constexpr auto batchSize = 1000'000;
+
+struct Split {
+    Split(const Split &) = delete;
+    Split(Split &&) = default;
+    Split &operator=(const Split &) = delete;
+    Split &operator=(Split &&) = default;
+    ~Split() = default;
+
+    Split() {}
+
+    std::string snipRest() {
+        auto f = data.rfind('\n');
+        if (f == std::string::npos) {
+            return {};
+        }
+        auto str = data.substr(f + 1);
+        data.resize(data.size() + str.size());
+        return str;
+    }
+
+    std::string data;
+};
+
+inline float toNumber(std::string_view str) {
+    float sign = (str.front() == '-') ? -1 : 1;
+    int value = 0;
+
+    if (sign < 0) {
+        str.remove_prefix(1);
+    }
+
+    auto it = str.begin();
+    for (; it != str.end(); ++it) {
+        if (*it == '.') {
+            ++it;
+            break;
+        }
+        value *= 10;
+        value += (*it - '0');
+    }
+
+    float decimals = 0;
+
+    for (; it != str.end(); ++it) {
+        decimals += (*it - '0');
+        decimals *= .1;
+    }
+
+    return std::copysign(decimals + value, sign);
+}
+
+struct Processor {
+    struct Values {
+        float sum;
+        int size;
+        float min = 1000;
+        float max = -10000;
+
+        void merge(const Values &other) {
+            sum += other.sum;
+            size += other.size;
+            min = std::min(min, other.min);
+            max = std::max(max, other.max);
+        }
+    };
+
+    std::list<Split> queue;
+
+    std::unordered_map<std::string, Values> stations;
+
+    size_t tmpNum = 0; // Remove this
+
+    void processLine(std::string_view line) {
+
+        auto f = line.find(';');
+
+        if (f == line.npos) {
+            throw std::runtime_error{"no semicolon found"};
+        }
+
+        auto name = std::string{line.substr(0, f)};
+        auto number = line.substr(f + 1);
+        auto num = toNumber(number);
+        ++tmpNum;
+        if (tmpNum < 10) {
+            std::cout << name << " = " << number << ", " << num << "\n";
+        }
+
+        auto &v = stations[name];
+        v.sum += num;
+        ++v.size;
+        v.min = std::min(v.min, num);
+        v.max = std::max(v.max, num);
+    }
+
+    void process(Split s) {
+        auto &d = s.data;
+        size_t lastLineStart = 0;
+        size_t semiPos = 0;
+        for (size_t i = 0; i < d.size(); ++i) {
+            auto c = d[i];
+            if (c == '\n') {
+                auto line = std::string_view{d.data() + lastLineStart,
+                                             i - lastLineStart};
+                lastLineStart = i + 1;
+
+                if (line.empty()) {
+                    continue;
+                }
+
+                processLine(line);
+            }
+            // if (c == ';') {
+            //     semiPos = i;
+
+            // }
+        }
+    }
+};
 
 struct Settings {
     std::filesystem::path path;
@@ -37,10 +158,6 @@ int main(int argc, char *argv[]) {
 
     auto start = std::chrono::high_resolution_clock::now();
 
-    // auto splitter = BatchSplitter{};
-    // auto thread = std::thread{[]() {}};
-    // thread.join();
-
     auto file = std::ifstream{settings.path};
 
     if (!file) {
@@ -50,82 +167,7 @@ int main(int argc, char *argv[]) {
 
     auto batches = 0;
 
-    // for (std::string line; std::getline(file, line);) {
-    // }
-
-    // constexpr auto batchSize = 1000'000;
-    // for (auto batch = std::array<char, batchSize>{};
-    //      file.read(batch.data(), batchSize);) {
-    //     ++batches;
-    // }
-
-    // auto i = 0;
-    // constexpr auto batchSize = 1000'000;
-    // constexpr int numBatches = 4;
-    // auto batch = std::array<std::array<char, batchSize>, numBatches>{};
-    // for (; file.read(batch.at(i).data(), batchSize);) {
-    //     // std::cout << "read\n";
-    //     ++batches;
-    //     splitter.push(batch.at(i));
-    //     ++i;
-    //     i = i % numBatches;
-    //     // auto lock = std::unique_lock{m};
-    // }
-
-    // constexpr auto batchSize = 1000'000;
-    // auto batch = std::make_unique<std::array<char, batchSize>>();
-    // for (; file.read(batch->data(), batchSize);) {
-    //     ++batches;
-    // }
-
-    // constexpr auto batchSize = 1000'000;
-    // auto batch = new char[batchSize];
-    // for (; file.read(batch, batchSize);) {
-    //     ++batches;
-    // }
-
-    // constexpr auto batchSize = 1000'000;
-    // auto batch = std::vector<char>{};
-    // batch.resize(batchSize);
-    // for (; file.read(batch.data(), batchSize);) {
-    // }
-
     auto processor = Processor{};
-    // auto allocator = Allocator{};
-
-    // for (auto s = Split{};
-    //      s = allocator.get(), file.read(s.data.data(), 1000'000);) {
-    //     processor.process(std::move(s));
-    //     ++batches;
-    // }
-
-    // constexpr auto batchSize = 1000;
-
-    // {
-    //     std::string rest;
-
-    //     for (; file;) {
-    //         auto s = Split{};
-
-    //         if (rest.empty()) {
-    //             s.data.resize(batchSize);
-    //             file.read(s.data.data(), batchSize);
-    //         }
-    //         else {
-    //             s.data.resize(batchSize + rest.size() + 1);
-    //             for (size_t i = 0; i < rest.size(); ++i) {
-    //                 s.data.at(i) = rest.at(i);
-    //             }
-    //             s.data.at(rest.size()) = '\n';
-    //             file.read(s.data.data() + rest.size() + 1, batchSize);
-    //         }
-
-    //         file.read(s.data.data(), batchSize);
-    //         auto rest = s.snipRest();
-    //         processor.process(std::move(s));
-    //         ++batches;
-    //     }
-    // }
 
     size_t fileLength = 0;
 
@@ -159,16 +201,6 @@ int main(int argc, char *argv[]) {
                         break;
                     }
                 }
-
-                // std::cout << "before: '";
-                // std::cout.write(data.data(), 50);
-                // std::cout << "'\n";
-
-                // file.seekg(s);
-                // file.read(data.data(), data.size());
-                // std::cout << "after: '";
-                // std::cout.write(data.data(), 50);
-                // std::cout << "'\n";
             }
 
             stops.push_back(fileLength);
@@ -198,54 +230,65 @@ int main(int argc, char *argv[]) {
         threadRanges.at(t).push_back(ranges.at(i));
     }
 
-    std::vector<decltype(Processor::stations)> stations;
+    std::list<std::vector<std::pair<std::string, Processor::Values>>> stations;
 
     {
         auto threads = std::list<std::jthread>{};
 
         for (auto &ranges : threadRanges) {
-            threads.push_back(std::jthread{
-                [ranges = std::move(ranges), &settings, &stations]() {
-                    auto processor = Processor{};
-                    std::cout << "thread " << std::this_thread::get_id()
-                              << "\n";
-                    // for (size_t i = 0; i < 10; ++i) {
-                    //     std::cout << range.at(i).first << ", " <<
-                    //     range.at(i).second
-                    //               << "\n";
-                    // }
+            threads.push_back(std::jthread{[ranges = std::move(ranges),
+                                            &settings,
+                                            &stations]() {
+                auto processor = Processor{};
+                std::cout << "thread " << std::this_thread::get_id() << "\n";
+                // for (size_t i = 0; i < 10; ++i) {
+                //     std::cout << range.at(i).first << ", " <<
+                //     range.at(i).second
+                //               << "\n";
+                // }
 
-                    auto file = std::ifstream{settings.path, std::ios::binary};
+                auto file = std::ifstream{settings.path, std::ios::binary};
 
-                    for (auto range : ranges) {
-                        file.seekg(range.first);
-                        auto s = Split{};
-                        s.data.resize(range.second - range.first);
+                for (auto range : ranges) {
+                    file.seekg(range.first);
+                    auto s = Split{};
+                    s.data.resize(range.second - range.first);
 
-                        file.read(s.data.data(), s.data.size());
-                        processor.process(std::move(s));
-                    }
+                    file.read(s.data.data(), s.data.size());
+                    processor.process(std::move(s));
+                }
 
-                    std::cout << "num stations: " << processor.stations.size()
-                              << std::endl;
+                std::cout << "num stations: " << processor.stations.size()
+                          << std::endl;
 
-                    stations.push_back(std::move(processor.stations));
-                }});
+                auto &s = stations.emplace_back(decltype(stations)::value_type(
+                    processor.stations.begin(), processor.stations.end()));
+
+                std::sort(s.begin(), s.end(), [](auto &a, auto &b) {
+                    return a.first < b.first;
+                });
+                std::cout << "sort completed" << std::endl;
+            }});
         }
     }
 
-    decltype(Processor::stations) result;
+    auto result = std::vector<std::pair<std::string, Processor::Values>>{};
 
-    for (auto &s : stations.front()) {
-        auto name = s.first;
-        std::cout << name << std::endl;
-        for (auto it : stations) {
-            auto &station = it.at(name);
-            result[name].merge(station);
+    result.resize(stations.front().size());
+
+    for (auto &v : stations) {
+        for (size_t i = 0; i < stations.front().size(); ++i) {
+            result.at(i).second.merge(v.at(i).second);
         }
     }
 
     auto stop = std::chrono::high_resolution_clock::now();
+
+    for (auto &s : result) {
+        std::cout << s.first << ": min:  " << s.second.min
+                  << ", max: " << s.second.max
+                  << ", mean: " << s.second.sum / s.second.size << "\n";
+    }
 
     std::cout << "batches " << batches << "\n";
 
