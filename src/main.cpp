@@ -123,13 +123,11 @@ struct Processor {
 
                 processLine(line);
             }
-            // if (c == ';') {
-            //     semiPos = i;
-
-            // }
         }
     }
 };
+
+constexpr auto helpstr = "usage:\n./1brc <filename.txt>\n";
 
 struct Settings {
     std::filesystem::path path;
@@ -141,12 +139,17 @@ struct Settings {
             auto arg = args.at(i);
 
             if (arg == "--help" || arg == "-h") {
-                std::cout << "help string here\n";
+                std::cout << helpstr;
                 std::exit(0);
             }
             else {
                 path = arg;
             }
+        }
+
+        if (path.empty()) {
+            std::cerr << helpstr << "\n";
+            std::exit(-1);
         }
     }
 };
@@ -167,44 +170,37 @@ int main(int argc, char *argv[]) {
 
     auto batches = 0;
 
-    auto processor = Processor{};
-
     size_t fileLength = 0;
 
     auto stops = std::vector<size_t>{};
 
     {
-        {
 
-            // stops.push_back(0);
-            // ate means to go for the end of the file
-            std::ifstream file(settings.path, std::ios::binary | std::ios::ate);
-            fileLength = file.tellg();
+        // ate means to go for the end of the file
+        std::ifstream file(settings.path, std::ios::binary | std::ios::ate);
+        fileLength = file.tellg();
 
-            std::cout << "file length " << fileLength << "\n";
+        std::cout << "file length " << fileLength << "\n";
 
-            stops.resize(fileLength / batchSize);
+        stops.resize(fileLength / batchSize);
 
-            for (size_t i = 0; i < stops.size(); ++i) {
-                stops.at(i) = i * fileLength / stops.size();
-            }
+        for (size_t i = 0; i < stops.size(); ++i) {
+            stops.at(i) = i * fileLength / stops.size();
+        }
 
-            std::cout << "number of stops << " << stops.size() << "\n";
-
-            auto data = std::array<char, 300>{};
-            for (auto &s : stops) {
-                file.seekg(s);
-                file.read(data.data(), data.size());
-                for (size_t i = 0; i < data.size(); ++i) {
-                    if (data.at(i) == '\n') {
-                        s += i;
-                        break;
-                    }
+        auto data = std::array<char, 300>{};
+        for (auto &s : stops) {
+            file.seekg(s);
+            file.read(data.data(), data.size());
+            for (size_t i = 0; i < data.size(); ++i) {
+                if (data.at(i) == '\n') {
+                    s += i;
+                    break;
                 }
             }
-
-            stops.push_back(fileLength);
         }
+
+        stops.push_back(fileLength);
     }
 
     std::cout << "stops processed" << std::endl;
@@ -241,11 +237,6 @@ int main(int argc, char *argv[]) {
                                             &stations]() {
                 auto processor = Processor{};
                 std::cout << "thread " << std::this_thread::get_id() << "\n";
-                // for (size_t i = 0; i < 10; ++i) {
-                //     std::cout << range.at(i).first << ", " <<
-                //     range.at(i).second
-                //               << "\n";
-                // }
 
                 auto file = std::ifstream{settings.path, std::ios::binary};
 
@@ -284,10 +275,12 @@ int main(int argc, char *argv[]) {
 
     auto stop = std::chrono::high_resolution_clock::now();
 
-    for (auto &s : result) {
-        std::cout << s.first << ": min:  " << s.second.min
-                  << ", max: " << s.second.max
-                  << ", mean: " << s.second.sum / s.second.size << "\n";
+    if (0) { // Change this to show the result
+        for (auto &s : result) {
+            std::cout << s.first << ": min:  " << s.second.min
+                      << ", max: " << s.second.max
+                      << ", mean: " << s.second.sum / s.second.size << "\n";
+        }
     }
 
     std::cout << "batches " << batches << "\n";
