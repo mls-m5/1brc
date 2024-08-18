@@ -19,12 +19,12 @@ After changing to multithreaded file loading i lowered the loading time from aro
 
 Sorting the result is what takes up the majority of the rest of the time.
 
-I have a unordered_map per thread. Those then get merged in the end in the main
+I have one unordered_map per thread. Those then get merged in the end in the main
 thread (that seems to be fast).
 
 ## Improvements
 
-If I would like to do some improvements it would be to replapce std::unordered_map
+If I would like to do some improvements it would be to replace std::unordered_map
 with something faster.
 
 ## result
