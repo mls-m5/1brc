@@ -10,30 +10,21 @@
 #include <unordered_map>
 #include <vector>
 
+// Got this by trial and error
 constexpr auto batchSize = 1000'000;
 
 struct Split {
+    Split() = default;
     Split(const Split &) = delete;
     Split(Split &&) = default;
     Split &operator=(const Split &) = delete;
     Split &operator=(Split &&) = default;
     ~Split() = default;
 
-    Split() {}
-
-    std::string snipRest() {
-        auto f = data.rfind('\n');
-        if (f == std::string::npos) {
-            return {};
-        }
-        auto str = data.substr(f + 1);
-        data.resize(data.size() + str.size());
-        return str;
-    }
-
     std::string data;
 };
 
+// Faster number parser
 inline float toNumber(std::string_view str) {
     float sign = (str.front() == '-') ? -1 : 1;
     int value = 0;
@@ -76,8 +67,6 @@ struct Processor {
             max = std::max(max, other.max);
         }
     };
-
-    std::list<Split> queue;
 
     std::unordered_map<std::string, Values> stations;
 
@@ -131,6 +120,7 @@ constexpr auto helpstr = "usage:\n./1brc <filename.txt>\n";
 
 struct Settings {
     std::filesystem::path path;
+    int numThreads = std::thread::hardware_concurrency();
 
     Settings(int argc, char *argv[]) {
         auto args = std::vector<std::string>{argv + 1, argv + argc};
@@ -141,6 +131,9 @@ struct Settings {
             if (arg == "--help" || arg == "-h") {
                 std::cout << helpstr;
                 std::exit(0);
+            }
+            if (arg == "--threads" || arg == "-j") {
+                numThreads = std::stoi(args.at(++i));
             }
             else {
                 path = arg;
@@ -174,8 +167,8 @@ int main(int argc, char *argv[]) {
 
     auto stops = std::vector<size_t>{};
 
+    // Split up files in chunks
     {
-
         // ate means to go for the end of the file
         std::ifstream file(settings.path, std::ios::binary | std::ios::ate);
         fileLength = file.tellg();
@@ -205,24 +198,23 @@ int main(int argc, char *argv[]) {
 
     std::cout << "stops processed" << std::endl;
 
-    auto ranges = std::vector<std::pair<size_t, size_t>>{};
-    {
+    auto ranges = [&stops] {
+        auto ranges = std::vector<std::pair<size_t, size_t>>{};
         size_t lastPos = 0;
-        auto pushRange = [&](size_t pos) {
-            ranges.push_back({lastPos, pos});
-            lastPos = pos;
-        };
         for (auto stop : stops) {
-            pushRange(stop);
+            ranges.push_back({lastPos, stop});
+            lastPos = stop;
         }
-    }
+        return ranges;
+    }();
 
+    // Ranges that belongs to each thread
     auto threadRanges = std::vector<std::vector<std::pair<size_t, size_t>>>{};
 
-    auto numThreads = std::thread::hardware_concurrency() * 1 + 1 * 0;
-    threadRanges.resize(numThreads);
+    threadRanges.resize(settings.numThreads);
 
-    for (size_t i = 0, t = 0; i < ranges.size(); ++i, ++t, t = t % numThreads) {
+    for (size_t i = 0, t = 0; i < ranges.size();
+         ++i, ++t, t = t % settings.numThreads) {
         threadRanges.at(t).push_back(ranges.at(i));
     }
 
@@ -231,6 +223,7 @@ int main(int argc, char *argv[]) {
     {
         auto threads = std::list<std::jthread>{};
 
+        // Each thread is responsible for loading selected parts of the file
         for (auto &ranges : threadRanges) {
             threads.push_back(std::jthread{[ranges = std::move(ranges),
                                             &settings,
