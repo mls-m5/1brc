@@ -131,18 +131,10 @@ int main(int argc, char *argv[]) {
 
     auto stops = std::vector<size_t>{};
 
-    size_t lastPos = 0;
-
-    auto ranges = std::vector<std::pair<size_t, size_t>>{};
-    auto pushRange = [&](size_t pos) {
-        ranges.push_back({lastPos, pos});
-        lastPos = pos;
-    };
-
     {
         {
 
-            stops.push_back(0);
+            // stops.push_back(0);
             // ate means to go for the end of the file
             std::ifstream file(settings.path, std::ios::binary | std::ios::ate);
             fileLength = file.tellg();
@@ -153,33 +145,56 @@ int main(int argc, char *argv[]) {
 
             for (size_t i = 0; i < stops.size(); ++i) {
                 stops.at(i) = i * fileLength / stops.size();
-                // stops.at(i * 2 + 1) = i * fileLength / stops.size();
-                pushRange(i * fileLength / stops.size());
             }
 
             std::cout << "number of stops << " << stops.size() << "\n";
 
-            auto data = std::array<char, 100>{};
+            auto data = std::array<char, 300>{};
             for (auto &s : stops) {
                 file.seekg(s);
                 file.read(data.data(), data.size());
                 for (size_t i = 0; i < data.size(); ++i) {
                     if (data.at(i) == '\n') {
-                        s += (i + 1);
+                        s += i;
+                        break;
                     }
                 }
+
+                // std::cout << "before: '";
+                // std::cout.write(data.data(), 50);
+                // std::cout << "'\n";
+
+                // file.seekg(s);
+                // file.read(data.data(), data.size());
+                // std::cout << "after: '";
+                // std::cout.write(data.data(), 50);
+                // std::cout << "'\n";
             }
 
-            // stops.push_back(fileLength);
-            pushRange(fileLength);
+            stops.push_back(fileLength);
+        }
+    }
+
+    std::cout << "stops processed" << std::endl;
+
+    auto ranges = std::vector<std::pair<size_t, size_t>>{};
+    {
+        size_t lastPos = 0;
+        auto pushRange = [&](size_t pos) {
+            ranges.push_back({lastPos, pos});
+            lastPos = pos;
+        };
+        for (auto stop : stops) {
+            pushRange(stop);
         }
     }
 
     auto threadRanges = std::vector<std::vector<std::pair<size_t, size_t>>>{};
-    threadRanges.resize(std::thread::hardware_concurrency());
 
-    for (size_t i = 0, t = 0; i < ranges.size();
-         ++i, ++t, t = t % std::thread::hardware_concurrency()) {
+    auto numThreads = std::thread::hardware_concurrency();
+    threadRanges.resize(numThreads);
+
+    for (size_t i = 0, t = 0; i < ranges.size(); ++i, ++t, t = t % numThreads) {
         threadRanges.at(t).push_back(ranges.at(i));
     }
 
